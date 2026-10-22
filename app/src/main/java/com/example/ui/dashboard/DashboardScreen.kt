@@ -32,7 +32,7 @@ import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.LocalParking
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.NotificationAdd
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.StayCurrentPortrait
@@ -48,11 +48,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,11 +103,16 @@ fun DashboardScreen(
     val pane1App by viewModel.pane1App.collectAsStateWithLifecycle()
     val pane2App by viewModel.pane2App.collectAsStateWithLifecycle()
     val availableApps by viewModel.availableApps.collectAsStateWithLifecycle()
+    val isNotifAccessGranted by viewModel.isNotificationAccessGranted.collectAsStateWithLifecycle()
 
     var pickerPaneTarget by remember { mutableStateOf<Int?>(null) }
 
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    LaunchedEffect(Unit) {
+        viewModel.checkNotificationPermission()
+    }
 
     // Handle system back navigation
     BackHandler(enabled = currentTab != CarScreenTab.SPLIT_DRIVE) {
@@ -150,22 +154,15 @@ fun DashboardScreen(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Top Automotive Status Bar
+                // Top Automotive Status Bar (Real GPS & Real Notification Status)
                 CarTopBar(
                     telemetry = telemetry,
                     isTtsEnabled = isTtsEnabled,
                     isKeepScreenOn = isKeepScreenOn,
+                    isNotifAccessGranted = isNotifAccessGranted,
+                    onOpenNotifAccess = { viewModel.openNotificationAccessSettings() },
                     onToggleTts = { viewModel.toggleVoiceTts() },
-                    onToggleKeepScreen = { viewModel.toggleKeepScreenOn() },
-                    onTriggerTestNotif = {
-                        val samples = listOf(
-                            Triple("Vợ Yêu", "Zalo", "Anh đi cẩn thận nhé, trời đang mưa đường trơn lắm!"),
-                            Triple("Sếp Tuấn", "Tin nhắn SMS", "Mai họp lúc 8h30 sáng nhé em."),
-                            Triple("Cảnh Báo Giao Thông", "VOV", "Đang ùn ứ tại nút giao Vành Đai 3, chú ý giảm tốc độ!")
-                        )
-                        val item = samples.random()
-                        viewModel.triggerSampleNotification(item.first, item.second, item.third, false)
-                    }
+                    onToggleKeepScreen = { viewModel.toggleKeepScreenOn() }
                 )
 
                 // Quick Mode Switcher Chips
@@ -183,7 +180,7 @@ fun DashboardScreen(
                     if (isLandscape) {
                         // Landscape / In-Car Screen Layout
                         Row(modifier = Modifier.fillMaxSize()) {
-                            // Left Column: Speedometer & Quick Controls
+                            // Left Column: Real Speedometer & Real Highway Limit
                             Column(
                                 modifier = Modifier
                                     .width(260.dp)
@@ -197,10 +194,7 @@ fun DashboardScreen(
                                     currentLimit = telemetry.speedLimitKmh,
                                     onLimitSelected = { viewModel.setSpeedLimit(it) }
                                 )
-                                SpeedSimulationController(
-                                    currentSpeed = telemetry.currentSpeedKmh,
-                                    onSpeedChange = { viewModel.toggleSimulatedSpeed(it) }
-                                )
+                                RealTelemetryInfoCard(telemetry = telemetry)
                             }
 
                             // Right Area: Split Screens (Custom Selected Apps)
@@ -270,7 +264,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Floating Heads-Up Notification Banner
+            // Floating Heads-Up Notification Banner (Real notifications from phone)
             HeadsUpNotificationBanner(
                 notification = activeNotif,
                 onSpeakClick = { viewModel.speakActiveNotification() },
@@ -303,9 +297,10 @@ private fun CarTopBar(
     telemetry: DrivingTelemetry,
     isTtsEnabled: Boolean,
     isKeepScreenOn: Boolean,
+    isNotifAccessGranted: Boolean,
+    onOpenNotifAccess: () -> Unit,
     onToggleTts: () -> Unit,
-    onToggleKeepScreen: () -> Unit,
-    onTriggerTestNotif: () -> Unit
+    onToggleKeepScreen: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -321,7 +316,7 @@ private fun CarTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Car Status Pill
+            // Car Status Pill & Real GPS Hardware Status
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -357,37 +352,62 @@ private fun CarTopBar(
                         )
                     }
                     Text(
-                        text = if (telemetry.isGpsLocked) "GPS: Đã khóa vệ tinh" else "GPS: Đang dò sóng...",
+                        text = if (telemetry.isGpsLocked) "GPS: Đã khóa (${telemetry.accuracyMeters.toInt()}m)" else "GPS: Đang tìm sóng vệ tinh...",
                         fontSize = 10.sp,
                         color = if (telemetry.isGpsLocked) AutoEmerald else AutoOrangeAccent
                     )
                 }
             }
 
-            // Quick Actions: TTS Voice, Keep Screen, Test Notification
+            // Real Notification Service Status & Quick Controls
             Row(verticalAlignment = Alignment.CenterVertically) {
-                FilledTonalButton(
-                    onClick = onTriggerTestNotif,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = Color(0xFF1E293B),
-                        contentColor = AutoCyanPrimary
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .height(34.dp)
-                        .testTag("test_notification_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.NotificationAdd,
-                        contentDescription = "Thử thông báo",
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Test Tin Nhắn",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                if (!isNotifAccessGranted) {
+                    FilledTonalButton(
+                        onClick = onOpenNotifAccess,
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = AutoOrangeAccent,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .testTag("grant_notification_access_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.NotificationsActive,
+                            contentDescription = "Bật đọc thông báo",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Bật Bắt Thông Báo Thật",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF0D281E))
+                            .border(1.dp, AutoEmerald, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .background(AutoEmerald, CircleShape)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Bắt Thông Báo Thật (Zalo/SMS)",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = AutoEmerald
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))
@@ -530,9 +550,8 @@ private fun SpeedLimitSelector(
 }
 
 @Composable
-private fun SpeedSimulationController(
-    currentSpeed: Int,
-    onSpeedChange: (Int) -> Unit
+private fun RealTelemetryInfoCard(
+    telemetry: DrivingTelemetry
 ) {
     Surface(
         modifier = Modifier
@@ -541,60 +560,60 @@ private fun SpeedSimulationController(
             .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp)),
         color = Color(0xFF0F172A)
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(modifier = Modifier.padding(10.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Thử tốc độ ảo (Desk):",
+                    text = "Độ cao GPS:",
                     fontSize = 11.sp,
                     color = Color(0xFF94A3B8)
                 )
                 Text(
-                    text = "$currentSpeed km/h",
-                    fontSize = 12.sp,
+                    text = "${telemetry.altitudeMeters.toInt()} mét",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Thời gian lái:",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Text(
+                    text = "${telemetry.tripDurationMinutes} phút",
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = AutoCyanPrimary
                 )
             }
 
-            Slider(
-                value = currentSpeed.toFloat(),
-                onValueChange = { onSpeedChange(it.toInt()) },
-                valueRange = 0f..140f,
-                colors = SliderDefaults.colors(
-                    thumbColor = AutoCyanPrimary,
-                    activeTrackColor = AutoCyanPrimary,
-                    inactiveTrackColor = Color(0xFF1E293B)
-                )
-            )
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                listOf(0, 45, 85, 110).forEach { spd ->
-                    FilledTonalButton(
-                        onClick = { onSpeedChange(spd) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(28.dp),
-                        shape = RoundedCornerShape(6.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = Color(0xFF1E293B),
-                            contentColor = Color.White
-                        ),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
-                    ) {
-                        Text(
-                            text = "$spd",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                Text(
+                    text = "Tốc độ tối đa:",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Text(
+                    text = "${telemetry.maxSpeedKmh} km/h",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AutoOrangeAccent
+                )
             }
         }
     }

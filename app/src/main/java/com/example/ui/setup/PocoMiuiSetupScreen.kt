@@ -172,6 +172,7 @@ fun PocoMiuiSetupScreen(
                     onActionClick = {
                         when (item.actionType) {
                             "SETTINGS_AUTO" -> MiuiSettingsHelper.openAndroidAutoSettings(context)
+                            "SETTINGS_NOTIF_ACCESS" -> com.example.service.CarNotificationListenerService.openNotificationAccessSettings(context)
                             "SETTINGS_OVERLAY" -> MiuiSettingsHelper.openOverlayPermission(context)
                             "SETTINGS_BATTERY" -> MiuiSettingsHelper.openMiuiBatteryOptimization(context)
                             "SETTINGS_WIRELESS" -> MiuiSettingsHelper.openWirelessDisplaySettings(context)
@@ -322,6 +323,7 @@ private fun MiuiStepCard(
                 Text(
                     text = when (item.actionType) {
                         "SETTINGS_AUTO" -> "Mở Cài Đặt Android Auto"
+                        "SETTINGS_NOTIF_ACCESS" -> "Cấp Quyền Đọc Thông Báo"
                         "SETTINGS_OVERLAY" -> "Cấp Quyền Cửa Sổ Nổi (Overlay)"
                         "SETTINGS_BATTERY" -> "Mở Cài Đặt Tiết Kiệm Pin MIUI"
                         "SETTINGS_WIRELESS" -> "Mở Cài Đặt Chiếu Màn Hình (Cast)"

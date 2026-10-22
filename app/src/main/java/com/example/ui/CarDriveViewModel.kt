@@ -10,6 +10,7 @@ import com.example.data.model.InstalledAppItem
 import com.example.data.model.MiuiSettingItem
 import com.example.data.model.QuickCarApp
 import com.example.data.model.YouTubePreset
+import com.example.service.CarNotificationListenerService
 import com.example.util.InstalledAppsManager
 import com.example.util.LocationSpeedManager
 import com.example.util.TtsManager
@@ -19,9 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 enum class CarScreenTab {
     SPLIT_DRIVE,      // Map + YouTube / Selected Apps song song
@@ -43,10 +41,10 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
     private val _currentScreenTab = MutableStateFlow(CarScreenTab.SPLIT_DRIVE)
     val currentScreenTab: StateFlow<CarScreenTab> = _currentScreenTab.asStateFlow()
 
-    private val _splitRatio = MutableStateFlow(0.5f) // 0.5f = 50:50, 0.7f = 70:30
+    private val _splitRatio = MutableStateFlow(0.5f)
     val splitRatio: StateFlow<Float> = _splitRatio.asStateFlow()
 
-    // Map URL: Default to OpenStreetMap / Google Maps Embed optimized for automotive view
+    // Map URL: Default to OpenStreetMap with live navigation tiles
     private val _mapUrl = MutableStateFlow("https://www.openstreetmap.org/export/embed.html?bbox=105.7,20.95,105.9,21.1&layer=mapnik&marker=21.0285,105.8542")
     val mapUrl: StateFlow<String> = _mapUrl.asStateFlow()
 
@@ -72,6 +70,9 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
 
     private val _notificationsHistory = MutableStateFlow<List<DrivingNotification>>(emptyList())
     val notificationsHistory: StateFlow<List<DrivingNotification>> = _notificationsHistory.asStateFlow()
+
+    private val _isNotificationAccessGranted = MutableStateFlow(false)
+    val isNotificationAccessGranted: StateFlow<Boolean> = _isNotificationAccessGranted.asStateFlow()
 
     private val _isBluetoothCarConnected = MutableStateFlow(true)
     val isBluetoothCarConnected: StateFlow<Boolean> = _isBluetoothCarConnected.asStateFlow()
@@ -201,29 +202,38 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
         MiuiSettingItem(
             id = "miui_aa_dev",
             title = "Bật Chế Độ Nhà Phát Triển Android Auto",
-            subtitle = "Vào Cài đặt Android Auto -> Nhấn 10 lần vào 'Phiên bản' -> Chọn 'Chế độ nhà phát triển' -> Bật 'Nguồn không xác định' (Unknown sources) và 'Chiếu không dây' (Wireless Projection).",
+            subtitle = "Vào Cài đặt Android Auto -> Nhấn 10 lần vào 'Phiên bản' -> Chọn 'Chế độ nhà phát triển' -> Bật 'Nguồn không xác định' (Unknown sources) và 'Chiếu không dây' (Wireless Projection) để chạy ứng dụng không bị giới hạn.",
             tag = "BẮT BUỘC",
             isCrucial = true,
             actionType = "SETTINGS_AUTO",
             guideStep = "Bước 1"
         ),
         MiuiSettingItem(
+            id = "miui_notif_access",
+            title = "Cấp Quyền Đọc Thông Báo Hệ Thống (Notification Access)",
+            subtitle = "Cho phép AutoDrive bắt thông báo thật từ Zalo, Messenger, SMS để đọc to bằng giọng nói tiếng Việt và hiện pop-up lái xe sắc nét.",
+            tag = "QUAN TRỌNG",
+            isCrucial = true,
+            actionType = "SETTINGS_NOTIF_ACCESS",
+            guideStep = "Bước 2"
+        ),
+        MiuiSettingItem(
             id = "miui_floating",
             title = "Cấp quyền Cửa sổ nổi MIUI 14 (Floating Windows)",
             subtitle = "Cho phép ứng dụng hiển thị đè lên các ứng dụng khác và màn hình xe hơi để hiển thị thông báo, bản đồ nhỏ và video PiP mượt mà không bị che khuất.",
-            tag = "QUAN TRỌNG",
+            tag = "CẦN THIẾT",
             isCrucial = true,
             actionType = "SETTINGS_OVERLAY",
-            guideStep = "Bước 2"
+            guideStep = "Bước 3"
         ),
         MiuiSettingItem(
             id = "miui_battery",
             title = "Tắt Tối Ưu Hóa Pin MIUI 14 (No Restrictions)",
             subtitle = "MIUI 14 trên Xiaomi POCO thường tự động đóng ứng dụng ngầm sau vài phút. Chọn 'Không hạn chế' (No restrictions) và bật 'Tự khởi chạy' (Autostart) để kết nối liên tục.",
-            tag = "CẦN THIẾT",
+            tag = "TIẾT KIỆM PIN",
             isCrucial = true,
             actionType = "SETTINGS_BATTERY",
-            guideStep = "Bước 3"
+            guideStep = "Bước 4"
         ),
         MiuiSettingItem(
             id = "miui_cast",
@@ -232,15 +242,6 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
             tag = "KẾT NỐI XE",
             isCrucial = false,
             actionType = "SETTINGS_WIRELESS",
-            guideStep = "Bước 4"
-        ),
-        MiuiSettingItem(
-            id = "miui_bt",
-            title = "Tự Động Bật Khi Kết Nối Bluetooth Ô Tô",
-            subtitle = "Khi điện thoại POCO nhận diện Bluetooth xe hơi (Car Audio / OBD / Bluetooth xe), chế độ lái xe AutoDrive sẽ tự kích hoạt và giữ sáng màn hình taplo.",
-            tag = "TIỆN ÍCH",
-            isCrucial = false,
-            actionType = "SETTINGS_BLUETOOTH",
             guideStep = "Bước 5"
         )
     )
@@ -248,16 +249,35 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
     init {
         locationSpeedManager.startLocationUpdates()
         loadInstalledApps()
+        checkNotificationPermission()
 
+        // Listen to REAL notifications from CarNotificationListenerService
         viewModelScope.launch {
-            delay(1500)
-            triggerSampleNotification(
-                sender = "Gia đình (Nhà)",
-                app = "Zalo",
-                msg = "Anh lái xe cẩn thận nhé, cả nhà đang chờ cơm!",
-                urgent = false
-            )
+            CarNotificationListenerService.liveNotifications.collect { realNotification ->
+                _activeNotification.value = realNotification
+                _notificationsHistory.value = listOf(realNotification) + _notificationsHistory.value
+
+                if (_isVoiceTtsEnabled.value) {
+                    ttsManager.speak("Thông báo từ ${realNotification.senderName}: ${realNotification.messageText}")
+                }
+
+                // Auto dismiss after 10s if not interacted
+                viewModelScope.launch {
+                    delay(10000)
+                    if (_activeNotification.value?.id == realNotification.id) {
+                        _activeNotification.value = null
+                    }
+                }
+            }
         }
+    }
+
+    fun checkNotificationPermission() {
+        _isNotificationAccessGranted.value = CarNotificationListenerService.isNotificationAccessGranted(getApplication())
+    }
+
+    fun openNotificationAccessSettings() {
+        CarNotificationListenerService.openNotificationAccessSettings(getApplication())
     }
 
     private fun loadInstalledApps() {
@@ -353,42 +373,8 @@ class CarDriveViewModel(application: Application) : AndroidViewModel(application
         _isKeepScreenOn.value = !_isKeepScreenOn.value
     }
 
-    fun toggleSimulatedSpeed(speed: Int) {
-        locationSpeedManager.setSimulatedSpeed(speed)
-    }
-
     fun resetTrip() {
         locationSpeedManager.resetTrip()
-    }
-
-    fun triggerSampleNotification(
-        sender: String = "Vợ Yêu",
-        app: String = "Zalo",
-        msg: String = "Anh đi làm về mua giúp em hộp sữa chua nhé!",
-        urgent: Boolean = false
-    ) {
-        val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
-        val notification = DrivingNotification(
-            id = "notif_${System.currentTimeMillis()}",
-            senderName = sender,
-            sourceApp = app,
-            messageText = msg,
-            timestampFormatted = timeStr,
-            isUrgent = urgent
-        )
-        _activeNotification.value = notification
-        _notificationsHistory.value = listOf(notification) + _notificationsHistory.value
-
-        if (_isVoiceTtsEnabled.value) {
-            ttsManager.speak("Thông báo mới từ $sender qua $app: $msg")
-        }
-
-        viewModelScope.launch {
-            delay(10000)
-            if (_activeNotification.value?.id == notification.id) {
-                _activeNotification.value = null
-            }
-        }
     }
 
     fun speakActiveNotification() {

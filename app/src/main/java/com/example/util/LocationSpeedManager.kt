@@ -21,22 +21,7 @@ class LocationSpeedManager(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
 
-    private val _telemetryState = MutableStateFlow(
-        DrivingTelemetry(
-            currentSpeedKmh = 0,
-            maxSpeedKmh = 0,
-            speedLimitKmh = 80,
-            headingDegrees = 0f,
-            cardinalDirection = "B",
-            altitudeMeters = 15.0,
-            tripDistanceKm = 0.0,
-            tripDurationMinutes = 0,
-            isGpsLocked = false,
-            isSpeedWarning = false,
-            isHudMode = false,
-            isSimulationMode = false
-        )
-    )
+    private val _telemetryState = MutableStateFlow(DrivingTelemetry())
     val telemetryState: StateFlow<DrivingTelemetry> = _telemetryState.asStateFlow()
 
     private var lastLocation: Location? = null
@@ -61,7 +46,7 @@ class LocationSpeedManager(private val context: Context) {
 
         lastLocation?.let { prev ->
             val dist = prev.distanceTo(location)
-            if (dist > 1.0) { // filter jitter
+            if (dist > 1.5) { // Filter sensor jitter
                 totalDistanceMeters += dist
             }
         }
@@ -69,7 +54,7 @@ class LocationSpeedManager(private val context: Context) {
 
         val heading = if (location.hasBearing()) location.bearing else 0f
         val cardinal = getCardinalDirection(heading)
-        val altitude = if (location.hasAltitude()) location.altitude else 15.0
+        val altitude = if (location.hasAltitude()) location.altitude else 0.0
         val durationMins = ((System.currentTimeMillis() - startTimeMillis) / 60000).toInt()
 
         val currentLimit = _telemetryState.value.speedLimitKmh
@@ -83,9 +68,11 @@ class LocationSpeedManager(private val context: Context) {
             altitudeMeters = altitude,
             tripDistanceKm = (totalDistanceMeters / 1000.0 * 10.0).roundToInt() / 10.0,
             tripDurationMinutes = durationMins,
+            latitude = location.latitude,
+            longitude = location.longitude,
+            accuracyMeters = location.accuracy,
             isGpsLocked = true,
-            isSpeedWarning = isWarning,
-            isSimulationMode = false
+            isSpeedWarning = isWarning
         )
     }
 
@@ -94,9 +81,9 @@ class LocationSpeedManager(private val context: Context) {
         try {
             val locationRequest = LocationRequest.Builder(
                 Priority.PRIORITY_HIGH_ACCURACY,
-                1000L
-            ).setMinUpdateIntervalMillis(500L)
-                .setMinUpdateDistanceMeters(0.5f)
+                500L // 2Hz real-time updates for automotive speedometer
+            ).setMinUpdateIntervalMillis(250L)
+                .setMinUpdateDistanceMeters(0.2f)
                 .build()
 
             fusedLocationClient.requestLocationUpdates(
@@ -105,9 +92,9 @@ class LocationSpeedManager(private val context: Context) {
                 Looper.getMainLooper()
             )
         } catch (e: SecurityException) {
-            // Permission not granted yet, user can enable simulation or grant permission
+            // Awaiting permission
         } catch (e: Exception) {
-            // Log/ignore
+            // Handle error
         }
     }
 
@@ -129,24 +116,6 @@ class LocationSpeedManager(private val context: Context) {
 
     fun setHudMode(enabled: Boolean) {
         _telemetryState.value = _telemetryState.value.copy(isHudMode = enabled)
-    }
-
-    // Interactive simulation slider/toggle for testing on desk / in emulator
-    fun setSimulatedSpeed(speedKmh: Int) {
-        if (speedKmh > maxRecordedSpeedKmh) {
-            maxRecordedSpeedKmh = speedKmh
-        }
-        val currentLimit = _telemetryState.value.speedLimitKmh
-        _telemetryState.value = _telemetryState.value.copy(
-            currentSpeedKmh = speedKmh,
-            maxSpeedKmh = maxRecordedSpeedKmh,
-            isGpsLocked = true,
-            isSpeedWarning = speedKmh > currentLimit && currentLimit > 0,
-            isSimulationMode = true,
-            tripDistanceKm = _telemetryState.value.tripDistanceKm + (speedKmh * 0.003),
-            headingDegrees = (_telemetryState.value.headingDegrees + 5) % 360,
-            cardinalDirection = getCardinalDirection((_telemetryState.value.headingDegrees + 5) % 360)
-        )
     }
 
     fun resetTrip() {

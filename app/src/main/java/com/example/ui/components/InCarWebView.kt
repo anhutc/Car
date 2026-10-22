@@ -169,6 +169,11 @@ fun InCarWebView(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
+                            try {
+                                setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                            } catch (e: Exception) {
+                                // Fallback
+                            }
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true

@@ -3,7 +3,7 @@ package com.example
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.model.DrivingTelemetry
-import com.example.data.model.InstalledAppItem
+import com.example.service.CarNotificationListenerService
 import com.example.util.InstalledAppsManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,5 +47,12 @@ class ExampleRobolectricTest {
 
     manager.savePane1AppId("test_app_id")
     assertEquals("test_app_id", manager.getSavedPane1AppId())
+  }
+
+  @Test
+  fun `notification service permissions check does not crash`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val isGranted = CarNotificationListenerService.isNotificationAccessGranted(context)
+    assertFalse(isGranted)
   }
 }
