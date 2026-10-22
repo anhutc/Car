@@ -1,0 +1,6 @@
+{
+  "name": "AutoDrive",
+  "description": "Trình điều khiển thông minh và kết nối ô tô cho Xiaomi POCO MIUI 14 - Tích hợp xem YouTube, bản đồ dẫn đường, bảng đồng hồ tốc độ HUD và trung tâm thông báo lái xe an toàn.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
